@@ -80,10 +80,10 @@ import (
 )
 
 func main() {
-  ctx, cancel := context.WithCancel(context.Background())
-  defer cancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-  pubsub := pubsub.New[string, ws.Message](10)
+	pubsub := pubsub.New[string, ws.Message](10)
   
 	handler := func(message ws.Message) {
 		pubsub.Publish("ws", message)
@@ -112,6 +112,6 @@ func main() {
 	}()
 	
 	supervisor.Wait()
-  pubsub.Close()
+	pubsub.Close()
 }
 ```
