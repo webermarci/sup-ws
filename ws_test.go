@@ -322,7 +322,7 @@ func TestWSActorReturnsContextErrorOnCancel(t *testing.T) {
 
 	server := newTestServer(t, func(ctx context.Context, conn *websocket.Conn) {
 		accepted <- struct{}{}
-		<-ctx.Done()
+		conn.Read(ctx)
 	})
 
 	actor := ws.NewActor(
