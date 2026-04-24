@@ -332,13 +332,26 @@ func TestWSActorReturnsContextErrorOnCancel(t *testing.T) {
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	done := runSupervisor(ctx, actor, sup.WithPolicy(sup.Temporary))
 
-	wait(t, accepted, time.Second, "server accept")
+	supervisor := sup.NewSupervisor(
+		sup.WithActor(actor),
+		sup.WithPolicy(sup.Temporary),
+	)
+
+	supervisorDone := make(chan error, 1)
+	go func() {
+		supervisorDone <- supervisor.Run(ctx)
+	}()
+
+	wait(t, accepted, 2*time.Second, "server accept")
 	cancel()
 
-	err := wait(t, done, 2*time.Second, "supervisor completion")
-	if err != context.Canceled {
-		t.Fatalf("expected context.Canceled, got %v", err)
+	select {
+	case err := <-supervisorDone:
+		if err != context.Canceled {
+			t.Fatalf("expected context.Canceled, got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for supervisor completion")
 	}
 }
