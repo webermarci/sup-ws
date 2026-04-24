@@ -86,7 +86,7 @@ func main() {
   pubsub := pubsub.New[string, ws.Message](10)
   
 	handler := func(message ws.Message) {
-	  pubsub.Publish("ws", message)
+		pubsub.Publish("ws", message)
 	}
 	
 	actor := ws.NewActor("wss://example.com/stream", handler,
