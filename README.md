@@ -43,13 +43,13 @@ func main() {
 		fmt.Println(message)
 	}
 
-	client := ws.NewActor("wss://example.com/stream", handler,
+	actor := ws.NewActor("wss://example.com/stream", handler,
 		ws.WithTimeout(30*time.Second),
 		ws.WithPingInterval(15*time.Second),
 	)
 
 	supervisor := sup.NewSupervisor(
-		sup.WithActor(client),
+		sup.WithActor(actor),
 		sup.WithPolicy(sup.Permanent),
 		sup.WithRestartDelay(time.Second),
 		sup.WithRestartLimit(5, 10*time.Second),
@@ -61,5 +61,57 @@ func main() {
 	_ = client.Send(ws.MessageBinary, []byte{0x01, 0x02, 0x03})
 
 	supervisor.Wait()
+}
+```
+
+## Using it with [pubsub](https://github.com/webermarci/pubsub)
+
+```go
+package main
+
+import (
+  "context"
+  "fmt"
+  "time"
+
+  "github.com/webermarci/pubsub"
+  "github.com/webermarci/sup"
+  ws "github.com/webermarci/sup-ws"
+)
+
+func main() {
+  ctx, cancel := context.WithCancel(context.Background())
+  defer cancel()
+
+  pubsub := pubsub.New[string, ws.Message](10)
+  
+	handler := func(message ws.Message) {
+	  pubsub.Publish("ws", message)
+	}
+	
+	actor := ws.NewActor("wss://example.com/stream", handler,
+		ws.WithTimeout(30*time.Second),
+		ws.WithPingInterval(15*time.Second),
+	)
+	
+	supervisor := sup.NewSupervisor(
+		sup.WithActor(actor),
+		sup.WithPolicy(sup.Permanent),
+		sup.WithRestartDelay(time.Second),
+		sup.WithRestartLimit(5, 10 * time.Second),
+	)
+	
+	go supervisor.Run(ctx)
+	
+	messages := pubsub.Subscribe(ctx, "ws")
+	
+	go func() {
+		for message := range messages {
+			fmt.Println(message)
+		}
+	}()
+	
+	supervisor.Wait()
+  pubsub.Close()
 }
 ```
