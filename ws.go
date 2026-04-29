@@ -24,13 +24,6 @@ type Message struct {
 	Data []byte
 }
 
-// Observer defines the interface for monitoring WebSocket connection lifecycle and messages.
-type Observer interface {
-	OnConnect(url string)
-	OnMessage(msg Message, duration time.Duration)
-	OnFailure(err error)
-}
-
 // ActorOption defines a function type for configuring the Actor.
 type ActorOption func(*Actor)
 
@@ -58,14 +51,6 @@ func WithPingInterval(d time.Duration) ActorOption {
 	}
 }
 
-// WithObserver assigns an Observer to receive notifications about connection events,
-// received messages, and failures.
-func WithObserver(o Observer) ActorOption {
-	return func(a *Actor) {
-		a.config.observer = o
-	}
-}
-
 // WithHTTPClient allows providing a custom http.Client for the WebSocket dial.
 func WithHTTPClient(c *http.Client) ActorOption {
 	return func(a *Actor) {
@@ -73,12 +58,35 @@ func WithHTTPClient(c *http.Client) ActorOption {
 	}
 }
 
+// WithOnConnect sets a callback that is invoked with the URL whenever a connection is successfully established.
+func WithOnConnect(handler func(url string)) ActorOption {
+	return func(a *Actor) {
+		a.config.onConnect = handler
+	}
+}
+
+// WithOnMessage sets a callback that is invoked with each received message and the duration since the last message was processed.
+func WithOnMessage(handler func(msg Message, duration time.Duration)) ActorOption {
+	return func(a *Actor) {
+		a.config.onMessage = handler
+	}
+}
+
+// WithOnError sets a callback that is invoked with any error that causes the actor to fail and trigger a supervisor restart.
+func WithOnError(handler func(err error)) ActorOption {
+	return func(a *Actor) {
+		a.config.onError = handler
+	}
+}
+
 type actorConfig struct {
-	observer     Observer
 	httpClient   *http.Client
 	mailboxSize  int
 	timeout      time.Duration
 	pingInterval time.Duration
+	onConnect    func(url string)
+	onMessage    func(msg Message, duration time.Duration)
+	onError      func(err error)
 }
 
 type sendMsg struct {
@@ -90,7 +98,8 @@ type sendMsg struct {
 // and exposes a thread-safe Send method for outbound messages. It is designed to run
 // under a sup.Supervisor, which handles reconnection on failure.
 type Actor struct {
-	*sup.Mailbox
+	*sup.BaseActor
+	mailbox *sup.Mailbox
 	url     string
 	handler func(Message)
 	config  *actorConfig
@@ -98,10 +107,11 @@ type Actor struct {
 
 // NewActor creates a new Actor with the specified URL, inbound message handler,
 // and optional configuration options.
-func NewActor(url string, handler func(Message), opts ...ActorOption) *Actor {
+func NewActor(name string, url string, handler func(Message), opts ...ActorOption) *Actor {
 	a := &Actor{
-		url:     url,
-		handler: handler,
+		BaseActor: sup.NewBaseActor(name),
+		url:       url,
+		handler:   handler,
 		config: &actorConfig{
 			mailboxSize:  10,
 			timeout:      30 * time.Second,
@@ -113,7 +123,7 @@ func NewActor(url string, handler func(Message), opts ...ActorOption) *Actor {
 		opt(a)
 	}
 
-	a.Mailbox = sup.NewMailbox(a.config.mailboxSize)
+	a.mailbox = sup.NewMailbox(a.config.mailboxSize)
 
 	return a
 }
@@ -121,7 +131,7 @@ func NewActor(url string, handler func(Message), opts ...ActorOption) *Actor {
 // Send enqueues an outbound message to be written by the actor's run loop.
 // It is safe to call from any goroutine.
 func (a *Actor) Send(msgType MessageType, data []byte) error {
-	return sup.Cast(a.Mailbox, sendMsg{msgType: msgType, data: data})
+	return sup.Cast(a.mailbox, sendMsg{msgType: msgType, data: data})
 }
 
 // Run establishes the WebSocket connection and drives two concurrent concerns:
@@ -140,8 +150,8 @@ func (a *Actor) Run(ctx context.Context) error {
 	}
 	defer conn.CloseNow()
 
-	if a.config.observer != nil {
-		a.config.observer.OnConnect(a.url)
+	if a.config.onConnect != nil {
+		a.config.onConnect(a.url)
 	}
 
 	connCtx, cancel := context.WithCancel(ctx)
@@ -183,21 +193,21 @@ func (a *Actor) Run(ctx context.Context) error {
 
 		case res := <-inbound:
 			if res.err != nil {
-				if a.config.observer != nil {
-					a.config.observer.OnFailure(res.err)
+				if a.config.onError != nil {
+					a.config.onError(res.err)
 				}
 				return res.err
 			}
 
 			idleTimer.Reset(a.config.timeout)
 
-			if a.config.observer != nil {
-				a.config.observer.OnMessage(res.msg, time.Since(msgStart))
+			if a.config.onMessage != nil {
+				a.config.onMessage(res.msg, time.Since(msgStart))
 			}
 			a.handler(res.msg)
 			msgStart = time.Now()
 
-		case envelope, ok := <-a.Receive():
+		case envelope, ok := <-a.mailbox.Receive():
 			if !ok {
 				conn.Close(websocket.StatusNormalClosure, "mailbox closed")
 				return nil
@@ -207,8 +217,8 @@ func (a *Actor) Run(ctx context.Context) error {
 			case sup.CastRequest[sendMsg]:
 				p := m.Payload()
 				if err := conn.Write(connCtx, websocket.MessageType(p.msgType), p.data); err != nil {
-					if a.config.observer != nil {
-						a.config.observer.OnFailure(err)
+					if a.config.onError != nil {
+						a.config.onError(err)
 					}
 					return err
 				}

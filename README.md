@@ -19,7 +19,6 @@ This library solves that by treating the WebSocket connection as an **Actor**. A
 * **Binary and Text Support**: Exposes the WebSocket message type (`MessageText` / `MessageBinary`) alongside the payload.
 * **Idle Timeout**: Configurable timeout that triggers a reconnect if no message is received within the window.
 * **Keepalive Pings**: Configurable ping interval to detect silent connection drops before the idle timeout fires.
-* **Rich Observability**: Built-in `Observer` interface to monitor connection events, received messages, and failures.
 
 ## Quick start
 
@@ -43,7 +42,7 @@ func main() {
 		fmt.Println(message)
 	}
 
-	actor := ws.NewActor("wss://example.com/stream", handler,
+	actor := ws.NewActor("actor", "wss://example.com/stream", handler,
 		ws.WithTimeout(30*time.Second),
 		ws.WithPingInterval(15*time.Second),
 	)
@@ -89,7 +88,7 @@ func main() {
 		pubsub.Publish("ws", message)
 	}
 	
-	actor := ws.NewActor("wss://example.com/stream", handler,
+	actor := ws.NewActor("actor", "wss://example.com/stream", handler,
 		ws.WithTimeout(30*time.Second),
 		ws.WithPingInterval(15*time.Second),
 	)

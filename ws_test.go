@@ -46,7 +46,7 @@ func runSupervisor(ctx context.Context, actor sup.Actor, opts ...sup.SupervisorO
 		sup.WithActor(actor),
 	}, opts...)
 
-	supervisor := sup.NewSupervisor(supervisorOpts...)
+	supervisor := sup.NewSupervisor("root", supervisorOpts...)
 
 	go func() {
 		done <- supervisor.Run(ctx)
@@ -83,7 +83,7 @@ func TestWSActorReceivesTextMessage(t *testing.T) {
 		<-ctx.Done()
 	})
 
-	actor := ws.NewActor(
+	actor := ws.NewActor(t.Name(),
 		wsURL(server),
 		func(msg ws.Message) {
 			received <- msg
@@ -126,7 +126,7 @@ func TestWSActorReceivesBinaryMessage(t *testing.T) {
 		<-ctx.Done()
 	})
 
-	actor := ws.NewActor(
+	actor := ws.NewActor(t.Name(),
 		wsURL(server),
 		func(msg ws.Message) {
 			received <- msg
@@ -172,7 +172,7 @@ func TestWSActorSend(t *testing.T) {
 		}
 	})
 
-	actor := ws.NewActor(
+	actor := ws.NewActor(t.Name(),
 		wsURL(server),
 		func(msg ws.Message) {},
 		ws.WithPingInterval(time.Hour),
@@ -202,30 +202,10 @@ func TestWSActorSend(t *testing.T) {
 	<-done
 }
 
-type testObserver struct {
-	connectCh chan string
-	messageCh chan ws.Message
-	failureCh chan error
-}
-
-func (o *testObserver) OnConnect(url string) {
-	o.connectCh <- url
-}
-
-func (o *testObserver) OnMessage(msg ws.Message, _ time.Duration) {
-	o.messageCh <- msg
-}
-
-func (o *testObserver) OnFailure(err error) {
-	o.failureCh <- err
-}
-
 func TestWSActorObserver(t *testing.T) {
-	observer := &testObserver{
-		connectCh: make(chan string, 1),
-		messageCh: make(chan ws.Message, 1),
-		failureCh: make(chan error, 1),
-	}
+	connectCh := make(chan string, 1)
+	messageCh := make(chan ws.Message, 1)
+	failureCh := make(chan error, 1)
 
 	server := newTestServer(t, func(ctx context.Context, conn *websocket.Conn) {
 		if err := conn.Write(ctx, websocket.MessageText, []byte("observed")); err != nil {
@@ -237,11 +217,19 @@ func TestWSActorObserver(t *testing.T) {
 		_ = conn.Close(websocket.StatusInternalError, "boom")
 	})
 
-	actor := ws.NewActor(
+	actor := ws.NewActor(t.Name(),
 		wsURL(server),
 		func(msg ws.Message) {},
-		ws.WithObserver(observer),
 		ws.WithPingInterval(time.Hour),
+		ws.WithOnConnect(func(url string) {
+			connectCh <- url
+		}),
+		ws.WithOnMessage(func(msg ws.Message, _ time.Duration) {
+			messageCh <- msg
+		}),
+		ws.WithOnError(func(err error) {
+			failureCh <- err
+		}),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -249,12 +237,12 @@ func TestWSActorObserver(t *testing.T) {
 
 	done := runSupervisor(ctx, actor, sup.WithPolicy(sup.Temporary))
 
-	url := wait(t, observer.connectCh, time.Second, "observer connect")
+	url := wait(t, connectCh, time.Second, "observer connect")
 	if url == "" {
 		t.Fatal("expected non-empty connect url")
 	}
 
-	msg := wait(t, observer.messageCh, 2*time.Second, "observer message")
+	msg := wait(t, messageCh, 2*time.Second, "observer message")
 	if msg.Type != ws.MessageText {
 		t.Fatalf("expected message type %v, got %v", ws.MessageText, msg.Type)
 	}
@@ -262,7 +250,7 @@ func TestWSActorObserver(t *testing.T) {
 		t.Fatalf("expected payload %q, got %q", "observed", string(msg.Data))
 	}
 
-	err := wait(t, observer.failureCh, 2*time.Second, "observer failure")
+	err := wait(t, failureCh, 2*time.Second, "observer failure")
 	if err == nil {
 		t.Fatal("expected failure error")
 	}
@@ -287,7 +275,7 @@ func TestWSActorReconnectsUnderSupervisor(t *testing.T) {
 		<-ctx.Done()
 	})
 
-	actor := ws.NewActor(
+	actor := ws.NewActor(t.Name(),
 		wsURL(server),
 		func(msg ws.Message) {},
 		ws.WithPingInterval(time.Hour),
@@ -325,7 +313,7 @@ func TestWSActorReturnsContextErrorOnCancel(t *testing.T) {
 		conn.Read(ctx)
 	})
 
-	actor := ws.NewActor(
+	actor := ws.NewActor(t.Name(),
 		wsURL(server),
 		func(msg ws.Message) {},
 		ws.WithPingInterval(time.Hour),
@@ -333,7 +321,7 @@ func TestWSActorReturnsContextErrorOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	supervisor := sup.NewSupervisor(
+	supervisor := sup.NewSupervisor("root",
 		sup.WithActor(actor),
 		sup.WithPolicy(sup.Temporary),
 	)
