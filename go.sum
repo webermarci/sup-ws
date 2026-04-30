@@ -4,3 +4,5 @@ github.com/webermarci/sup v0.0.25 h1:Cz+qJ4jdiYUc6D8QQu7iUrDa4+Z9b22mSZLdv7J5Ozc
 github.com/webermarci/sup v0.0.25/go.mod h1:yK2YWijXbObjEUbEu29T77WZWgHODmzrIfIi6Gx59vU=
 github.com/webermarci/sup v0.0.26 h1:0cyoPLZiq/1YtAvo6QibmwpUGKUDvTDowgYJjQI8oHQ=
 github.com/webermarci/sup v0.0.26/go.mod h1:yK2YWijXbObjEUbEu29T77WZWgHODmzrIfIi6Gx59vU=
+github.com/webermarci/sup v0.0.27 h1:HyL4NL4ZoJrlUKsDtotlVEVp+6OUaygcb8YTFt0jQJs=
+github.com/webermarci/sup v0.0.27/go.mod h1:yK2YWijXbObjEUbEu29T77WZWgHODmzrIfIi6Gx59vU=
