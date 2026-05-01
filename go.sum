@@ -8,3 +8,5 @@ github.com/webermarci/sup v0.0.27 h1:HyL4NL4ZoJrlUKsDtotlVEVp+6OUaygcb8YTFt0jQJs
 github.com/webermarci/sup v0.0.27/go.mod h1:yK2YWijXbObjEUbEu29T77WZWgHODmzrIfIi6Gx59vU=
 github.com/webermarci/sup v0.0.28 h1:I3n3qHVs+SqeDSMMJafySSB56OMfp8X5+CRRxELOYFo=
 github.com/webermarci/sup v0.0.28/go.mod h1:yK2YWijXbObjEUbEu29T77WZWgHODmzrIfIi6Gx59vU=
+github.com/webermarci/sup v0.0.31 h1:NuDFcIpxk4zdLWy0EOayJ6b2C1PrY65iw87p01rCBg4=
+github.com/webermarci/sup v0.0.31/go.mod h1:yK2YWijXbObjEUbEu29T77WZWgHODmzrIfIi6Gx59vU=
