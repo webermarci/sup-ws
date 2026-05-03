@@ -2,7 +2,6 @@ package ws
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -31,15 +30,6 @@ type ActorOption func(*Actor)
 func WithMailboxSize(size int) ActorOption {
 	return func(a *Actor) {
 		a.config.mailboxSize = size
-	}
-}
-
-// WithTimeout sets the idle read timeout — if no message is received within this
-// duration, the connection is considered dead and the actor returns an error,
-// allowing the supervisor to reconnect. Default is 30 seconds.
-func WithTimeout(d time.Duration) ActorOption {
-	return func(a *Actor) {
-		a.config.timeout = d
 	}
 }
 
@@ -82,7 +72,6 @@ func WithOnError(handler func(err error)) ActorOption {
 type actorConfig struct {
 	httpClient   *http.Client
 	mailboxSize  int
-	timeout      time.Duration
 	pingInterval time.Duration
 	onConnect    func(url string)
 	onMessage    func(msg Message, duration time.Duration)
@@ -114,7 +103,6 @@ func NewActor(name string, url string, handler func(Message), opts ...ActorOptio
 		handler:   handler,
 		config: &actorConfig{
 			mailboxSize:  10,
-			timeout:      30 * time.Second,
 			pingInterval: 15 * time.Second,
 		},
 	}
@@ -134,10 +122,9 @@ func (a *Actor) Send(msgType MessageType, data []byte) error {
 	return sup.Cast(a.mailbox, sendMsg{msgType: msgType, data: data})
 }
 
-// Run establishes the WebSocket connection and drives two concurrent concerns:
-// reading inbound frames (in a goroutine, since conn.Read is blocking) and writing
-// outbound messages from the mailbox. Any failure on either side causes Run to return
-// an error, triggering a supervisor restart and reconnection.
+// Run establishes the WebSocket connection and drives concurrent concerns:
+// reading inbound frames, writing outbound frames, and maintaining keep-alive pings.
+// Any failure causes Run to return an error, triggering a supervisor restart.
 func (a *Actor) Run(ctx context.Context) error {
 	dialOpts := &websocket.DialOptions{}
 	if a.config.httpClient != nil {
@@ -157,12 +144,28 @@ func (a *Actor) Run(ctx context.Context) error {
 	connCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	go func() {
+		pingTicker := time.NewTicker(a.config.pingInterval)
+		defer pingTicker.Stop()
+
+		for {
+			select {
+			case <-connCtx.Done():
+				return
+			case <-pingTicker.C:
+				pingCtx, pingCancel := context.WithTimeout(connCtx, 5*time.Second)
+				_ = conn.Ping(pingCtx)
+				pingCancel()
+			}
+		}
+	}()
+
 	type readResult struct {
 		msg Message
 		err error
 	}
-
 	inbound := make(chan readResult, 1)
+
 	go func() {
 		for {
 			msgType, data, err := conn.Read(connCtx)
@@ -174,12 +177,6 @@ func (a *Actor) Run(ctx context.Context) error {
 		}
 	}()
 
-	pingTicker := time.NewTicker(a.config.pingInterval)
-	defer pingTicker.Stop()
-
-	idleTimer := time.NewTimer(a.config.timeout)
-	defer idleTimer.Stop()
-
 	msgStart := time.Now()
 
 	for {
@@ -188,9 +185,6 @@ func (a *Actor) Run(ctx context.Context) error {
 			conn.Close(websocket.StatusNormalClosure, "shutting down")
 			return ctx.Err()
 
-		case <-idleTimer.C:
-			return fmt.Errorf("idle timeout after %s", a.config.timeout)
-
 		case res := <-inbound:
 			if res.err != nil {
 				if a.config.onError != nil {
@@ -198,8 +192,6 @@ func (a *Actor) Run(ctx context.Context) error {
 				}
 				return res.err
 			}
-
-			idleTimer.Reset(a.config.timeout)
 
 			if a.config.onMessage != nil {
 				a.config.onMessage(res.msg, time.Since(msgStart))
@@ -222,14 +214,6 @@ func (a *Actor) Run(ctx context.Context) error {
 					}
 					return err
 				}
-			}
-
-		case <-pingTicker.C:
-			pingCtx, pingCancel := context.WithTimeout(connCtx, 5*time.Second)
-			err := conn.Ping(pingCtx)
-			pingCancel()
-			if err != nil {
-				return fmt.Errorf("ping failed: %w", err)
 			}
 		}
 	}
